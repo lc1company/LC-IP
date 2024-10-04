@@ -350,7 +350,7 @@
         <button class="tab-link" onclick="showTab('historico')">
             <i class="fas fa-history"></i> Histórico
         </button>
-        
+
         <button id="btnConfiguracoes" onclick="showTab('configuracoes')">
             <i class="fas fa-cog"></i> Configurações
         </button>
@@ -417,6 +417,11 @@
                     tab.classList.remove('active');
                 }
             });
+
+            // Se o usuário abrir a aba da "Área do Entregador", verificar o role
+            if (tabId === 'area-entregador') {
+                checkUserRole(); // Verifica se o usuário é um entregador
+            }
 
             buttons.forEach(button => {
                 if (button.getAttribute('onclick').includes(tabId)) {
@@ -516,13 +521,162 @@
         });
 
         window.toggleAvailability = function (isAvailable) {
+            const userId = auth.currentUser.uid; // Usando o objeto `auth` que foi importado
             const statusElement = document.getElementById('status');
+
+            // Atualiza o status na interface
             if (isAvailable) {
                 statusElement.textContent = 'Você está disponível para entregas.';
+                localStorage.setItem('deliveryStatus', 'online');
             } else {
                 statusElement.textContent = 'Você está indisponível para entregas.';
+                localStorage.setItem('deliveryStatus', 'offline');
             }
+
+            // Atualiza o status no Firestore
+            const userDocRef = doc(db, 'users', userId); // Usando `doc` e `db` corretamente
+            updateDoc(userDocRef, {
+                status: isAvailable ? 'online' : 'offline'
+            }).then(() => {
+                console.log('Status atualizado no Firestore.');
+            }).catch((error) => {
+                console.error('Erro ao atualizar o status:', error);
+            });
+        };
+
+        function checkUserRole() {
+            const userId = auth.currentUser.uid;
+            const userDocRef = doc(db, 'users', userId);
+
+            getDoc(userDocRef).then((docSnap) => {
+                if (docSnap.exists()) {
+                    const userData = docSnap.data();
+
+                    // Verifica se o usuário está banido
+                    if (userData.ban === true) {
+                        showBanMessage();
+                        return;
+                    }
+
+                    // Verifica se o usuário é um entregador
+                    if (userData.role !== 'entregador') {
+                        showRoleRestrictionMessage();
+                    } else {
+                        console.log('Usuário é entregador.');
+                    }
+                } else {
+                    console.error('Documento do usuário não encontrado.');
+                }
+            }).catch((error) => {
+                console.error('Erro ao buscar os dados do usuário:', error);
+            });
         }
+
+        function showRoleRestrictionMessage() {
+            // Cria o elemento de sobreposição
+            const overlay = document.createElement('div');
+            overlay.id = 'roleOverlay';
+            overlay.style.position = 'fixed';
+            overlay.style.top = '0';
+            overlay.style.left = '0';
+            overlay.style.width = '100%';
+            overlay.style.height = '100%';
+            overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+            overlay.style.color = 'white';
+            overlay.style.zIndex = '1000';
+            overlay.style.display = 'flex';
+            overlay.style.flexDirection = 'column';
+            overlay.style.alignItems = 'center';
+            overlay.style.justifyContent = 'center';
+            overlay.style.textAlign = 'center';
+            overlay.style.padding = '20px';
+            overlay.style.transition = 'opacity 0.5s ease-in-out';
+
+            // Adiciona o conteúdo da mensagem
+            overlay.innerHTML = `
+        <h2 style="font-size: 24px; margin-bottom: 20px;">Acesso Restrito</h2>
+        <p style="font-size: 18px; margin-bottom: 20px;">
+            Você não é um entregador parceiro. Para receber pedidos, você precisa se cadastrar como entregador.
+        </p>
+        <a href="/cadastrar-entregador.html" style="font-size: 18px; color: #00d9ff; text-decoration: none; padding: 10px 20px; background-color: #004aad; border-radius: 5px; transition: background-color 0.3s;">
+            Cadastre-se como Entregador
+        </a>
+    `;
+
+            // Adiciona animação ao link
+            const link = overlay.querySelector('a');
+            link.addEventListener('mouseover', () => {
+                link.style.backgroundColor = '#001d3d';
+            });
+            link.addEventListener('mouseout', () => {
+                link.style.backgroundColor = '#004aad';
+            });
+
+            // Exibe a sobreposição
+            document.body.appendChild(overlay);
+
+            // Animação de fade-in
+            setTimeout(() => {
+                overlay.style.opacity = '1';
+            }, 100);
+        }
+
+        function showBanMessage() {
+            // Cria o elemento de sobreposição
+            const overlay = document.createElement('div');
+            overlay.id = 'banOverlay';
+            overlay.style.position = 'fixed';
+            overlay.style.top = '0';
+            overlay.style.left = '0';
+            overlay.style.width = '100%';
+            overlay.style.height = '100%';
+            overlay.style.backgroundImage = 'linear-gradient(135deg, #ff0000, #000000)';
+            overlay.style.color = '#fff';
+            overlay.style.zIndex = '1000';
+            overlay.style.display = 'flex';
+            overlay.style.flexDirection = 'column';
+            overlay.style.alignItems = 'center';
+            overlay.style.justifyContent = 'center';
+            overlay.style.textAlign = 'center';
+            overlay.style.padding = '20px';
+            overlay.style.transition = 'opacity 0.5s ease-in-out';
+            overlay.style.fontFamily = "'Orbitron', sans-serif";
+            overlay.style.letterSpacing = '2px';
+            overlay.style.textShadow = '0 0 10px #ff4d4d, 0 0 20px #ff6666, 0 0 30px #ff4d4d';
+
+            // Adiciona o conteúdo da mensagem
+            overlay.innerHTML = `
+        <h2 style="font-size: 32px; margin-bottom: 20px; text-transform: uppercase; color: #ff6666;">
+            Acesso Negado
+        </h2>
+        <p style="font-size: 20px; margin-bottom: 30px; color: #ff9999;">
+            Você foi banido da plataforma e não pode mais receber pedidos.
+        </p>
+        <a href="/contato-suporte.html" style="font-size: 18px; color: #fff; text-decoration: none; padding: 10px 20px; background: linear-gradient(135deg, #ff1a1a, #660000); border-radius: 50px; box-shadow: 0 0 10px #ff3333, 0 0 20px #ff6666; transition: background-color 0.3s ease;">
+            Entre em contato com o suporte
+        </a>
+    `;
+
+            // Animação ao passar o mouse no link
+            const link = overlay.querySelector('a');
+            link.addEventListener('mouseover', () => {
+                link.style.background = 'linear-gradient(135deg, #ff3333, #990000)';
+                link.style.boxShadow = '0 0 20px #ff3333, 0 0 30px #ff6666';
+            });
+            link.addEventListener('mouseout', () => {
+                link.style.background = 'linear-gradient(135deg, #ff1a1a, #660000)';
+                link.style.boxShadow = '0 0 10px #ff3333, 0 0 20px #ff6666';
+            });
+
+            // Exibe a sobreposição
+            document.body.appendChild(overlay);
+
+            // Animação de fade-in
+            setTimeout(() => {
+                overlay.style.opacity = '1';
+            }, 100);
+        }
+
     </script>
 </body>
 
