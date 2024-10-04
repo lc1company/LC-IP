@@ -281,6 +281,48 @@
         .unavailable:hover {
             background-color: #c82333;
         }
+
+        /* Estilo para o botão futurista */
+        .capture-button {
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #00f4ff, #004aad);
+            color: white;
+            border: 2px solid #00f4ff;
+            border-radius: 30px;
+            cursor: pointer;
+            font-size: 16px;
+            font-family: 'Roboto', sans-serif;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            transition: background-color 0.3s, transform 0.3s, box-shadow 0.3s;
+            box-shadow: 0 0 15px rgba(0, 244, 255, 0.6), 0 0 30px rgba(0, 244, 255, 0.3);
+        }
+
+        /* Animação de hover para o botão */
+        .capture-button:hover {
+            background: linear-gradient(135deg, #004aad, #00f4ff);
+            transform: translateY(-3px);
+            box-shadow: 0 0 20px rgba(0, 244, 255, 0.8), 0 0 40px rgba(0, 244, 255, 0.5);
+        }
+
+        /* Estilo para a exibição da cidade */
+        #cidadeUsuario {
+            margin-top: 20px;
+            font-size: 20px;
+            color: #00f4ff;
+            font-family: 'Orbitron', sans-serif;
+            letter-spacing: 1.5px;
+            text-shadow: 0 0 10px rgba(0, 244, 255, 0.7), 0 0 20px rgba(0, 244, 255, 0.4);
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out, transform 0.5s;
+            transform: translateY(20px);
+        }
+
+        /* Animação de fade-in para a cidade */
+        #cidadeUsuario.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
     </style>
 </head>
 
@@ -293,8 +335,13 @@
     <div class="container">
         <div id="mensagens" class="tab active">
             <div class="tab-content">
+                <button id="btnCapturarCidade" class="capture-button" onclick="capturarCidade()">Capturar Minha
+                    Cidade</button>
+                <p id="cidadeUsuario"></p>
                 <h2><i class="fas fa-comment"></i> Mensagens</h2>
                 <p>Aqui estarão suas mensagens. Explore novas conversas e mantenha-se conectado.</p>
+                <h3>Entregadores Online na Sua Cidade</h3>
+                <div id="entregadoresOnline"></div> <!-- Aqui serão exibidos os entregadores -->
             </div>
         </div>
 
@@ -360,7 +407,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
         import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
-        import { getFirestore, doc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, updateDoc, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
         import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-storage.js";
 
         const firebaseConfig = {
@@ -387,6 +434,112 @@
                 window.location.href = "LoginOrRegister.html";
             }
         });
+
+        // Função para capturar a cidade do usuário
+        window.capturarCidade = function () {
+            // Verifica se o navegador suporta geolocalização
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(successCallback, errorCallback);
+            } else {
+                alert('Geolocalização não é suportada pelo seu navegador.');
+            }
+        }
+
+        // Callback de sucesso para geolocalização
+        function successCallback(position) {
+            const latitude = position.coords.latitude;
+            const longitude = position.coords.longitude;
+
+            // URL da API do OpenStreetMap para geocodificação reversa
+            const url = `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`;
+
+            // Faz a solicitação para obter o nome da cidade e estado
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    const cidade = data.address.city || data.address.town || data.address.village;
+                    const estado = data.address.state || data.address.region; // Pega o estado ou região
+                    const estadoSigla = data.address.state_code || ''; // Pega a sigla do estado se disponível
+
+                    // Monta o nome da cidade com a sigla do estado, se disponível
+                    const cidadeCompleta = estadoSigla ? `${cidade}-${estadoSigla}` : `${cidade}, ${estado}`;
+
+                    const cidadeUsuarioEl = document.getElementById('cidadeUsuario');
+                    cidadeUsuarioEl.innerText = `Sua cidade: ${cidadeCompleta}`;
+                    cidadeUsuarioEl.classList.add('show'); // Adiciona a classe para animar o texto
+
+                    buscarEntregadoresOnline(cidadeCompleta);
+                })
+                .catch(error => {
+                    console.error('Erro ao buscar a cidade:', error);
+                    alert('Não foi possível capturar a cidade.');
+                });
+        }
+
+        // Callback de erro para geolocalização
+        function errorCallback(error) {
+            alert('Erro ao obter geolocalização: ' + error.message);
+        }
+
+        // Função para buscar os entregadores online da mesma cidade
+        // Função para buscar os entregadores online da mesma cidade
+        function buscarEntregadoresOnline(cidadeUsuario) {
+            const entregadoresOnlineEl = document.getElementById('entregadoresOnline');
+            entregadoresOnlineEl.innerHTML = ''; // Limpa a lista antes de exibir novos entregadores
+
+            // Refere-se à coleção 'users' no Firestore
+            const usersRef = collection(db, 'users');
+            const q = query(usersRef, where('status', '==', 'online'), where('cidade', '==', cidadeUsuario), where('role', '==', 'entregador'));
+
+            getDocs(q)
+                .then((querySnapshot) => {
+                    if (querySnapshot.empty) {
+                        entregadoresOnlineEl.innerHTML = '<p>Nenhum entregador online nesta cidade.</p>';
+                    } else {
+                        querySnapshot.forEach((doc) => {
+                            const entregador = doc.data();
+
+                            // Captura os dados corretos do entregador
+                            const nome = entregador.fullName || 'Nome não disponível';
+                            const foto = entregador.photoURL || 'caminho/para/imagem/padrao.png'; // Substitua pelo caminho da imagem padrão
+
+                            // Criação do elemento para o entregador
+                            const entregadorEl = document.createElement('div');
+                            entregadorEl.style.display = 'flex';
+                            entregadorEl.style.alignItems = 'center';
+                            entregadorEl.style.padding = '10px';
+                            entregadorEl.style.marginBottom = '10px';
+                            entregadorEl.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+                            entregadorEl.style.borderRadius = '10px';
+                            entregadorEl.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                            entregadorEl.style.transition = 'background-color 0.3s';
+
+                            // Adiciona animações ao passar o mouse
+                            entregadorEl.addEventListener('mouseenter', () => {
+                                entregadorEl.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+                            });
+                            entregadorEl.addEventListener('mouseleave', () => {
+                                entregadorEl.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                            });
+
+                            // Adiciona conteúdo do entregador
+                            entregadorEl.innerHTML = `
+                        <img src="${foto}" alt="${nome}" style="width: 50px; height: 50px; border-radius: 50%; margin-right: 10px;">
+                        <div style="flex-grow: 1;">
+                            <strong style="color: #00ff00;">${nome}</strong>
+                            <p style="color: #ccc;">Status: Online</p>
+                        </div>
+                    `;
+
+                            entregadoresOnlineEl.appendChild(entregadorEl);
+                        });
+                    }
+                })
+                .catch((error) => {
+                    console.error('Erro ao buscar entregadores online:', error);
+                    entregadoresOnlineEl.innerHTML = '<p>Erro ao buscar entregadores online.</p>';
+                });
+        }
 
         // Função para buscar os dados do Firestore
         async function loadUserInfo(userId, userEmail) {
