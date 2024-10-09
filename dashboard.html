@@ -323,6 +323,79 @@
             opacity: 1;
             transform: translateY(0);
         }
+
+        #chatList {
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .chat-list-item {
+            margin-bottom: 20px;
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+        }
+
+        .chat-list-item:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        }
+
+        .chat-container {
+            display: flex;
+            align-items: center;
+            background-color: #242424;
+            /* Cor de fundo do item */
+            border-radius: 15px;
+            padding: 15px;
+            box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);
+            transition: background-color 0.3s, transform 0.3s;
+        }
+
+        .chat-container:hover {
+            background-color: #3a3a3c;
+            /* Mudança de cor ao passar o mouse */
+            transform: scale(1.02);
+            /* Efeito de aumento */
+        }
+
+        .user-image {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            margin-right: 15px;
+            object-fit: cover;
+            border: 2px solid #00bcd4;
+            /* Borda ciano ao redor da imagem */
+            transition: transform 0.3s;
+        }
+
+        .user-image:hover {
+            transform: scale(1.1);
+            /* Animação de zoom na imagem do usuário */
+        }
+
+        .user-name {
+            color: #00bcd4;
+            /* Nome do usuário em azul ciano */
+            font-size: 18px;
+            font-weight: bold;
+            margin-right: 10px;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+        }
+
+        .chat-icon {
+            font-size: 24px;
+            /* Tamanho do ícone de chat */
+            color: #00bcd4;
+            /* Cor do ícone */
+            transition: transform 0.3s;
+        }
+
+        .chat-icon:hover {
+            transform: rotate(15deg);
+            /* Animação de rotação ao passar o mouse */
+        }
     </style>
 </head>
 
@@ -340,6 +413,19 @@
                 <p id="cidadeUsuario"></p>
                 <h2><i class="fas fa-comment"></i> Mensagens</h2>
                 <p>Aqui estarão suas mensagens. Explore novas conversas e mantenha-se conectado.</p>
+                <ul id="chatList"></ul>
+                <!-- Modal de Chat -->
+                <div id="chatModal" style="display: none;">
+                    <div style="background-color: white; padding: 20px; border-radius: 10px; width: 300px;">
+                        <h2 id="chatModalTitle"></h2>
+                        <div id="chatMessages"
+                            style="height: 300px; overflow-y: auto; border: 1px solid #ddd; margin-bottom: 10px; padding: 10px;">
+                        </div>
+                        <button onclick="closeChatModal()"
+                            style="padding: 8px 12px; border: none; background-color: #007bff; color: white; border-radius: 5px; cursor: pointer;">Fechar</button>
+                    </div>
+                </div>
+
                 <h3>Entregadores Online na Sua Cidade</h3>
                 <div id="entregadoresOnline"></div> <!-- Aqui serão exibidos os entregadores -->
             </div>
@@ -407,7 +493,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
         import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
-        import { getFirestore, doc, getDoc, updateDoc, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, updateDoc, collection, query, where, getDocs, addDoc, serverTimestamp, arrayUnion, onSnapshot, or } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
         import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-storage.js";
 
         const firebaseConfig = {
@@ -429,11 +515,22 @@
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 loadUserInfo(user.uid, user.email);
+                buscarChatsDoUsuario();
             } else {
                 console.log("Usuário não autenticado.");
                 window.location.href = "LoginOrRegister.html";
             }
         });
+
+        function getUserId() {
+            const user = auth.currentUser; // Usando 'auth' em vez de 'firebase.auth()'
+            if (user) {
+                return user.uid; // Retorna o ID do usuário autenticado
+            } else {
+                console.error("Nenhum usuário autenticado.");
+                return null; // Ou algum tratamento caso o usuário não esteja autenticado
+            }
+        }
 
         // Função para capturar a cidade do usuário
         window.capturarCidade = function () {
@@ -482,12 +579,10 @@
         }
 
         // Função para buscar os entregadores online da mesma cidade
-        // Função para buscar os entregadores online da mesma cidade
         function buscarEntregadoresOnline(cidadeUsuario) {
             const entregadoresOnlineEl = document.getElementById('entregadoresOnline');
             entregadoresOnlineEl.innerHTML = ''; // Limpa a lista antes de exibir novos entregadores
 
-            // Refere-se à coleção 'users' no Firestore
             const usersRef = collection(db, 'users');
             const q = query(usersRef, where('status', '==', 'online'), where('cidade', '==', cidadeUsuario), where('role', '==', 'entregador'));
 
@@ -499,11 +594,9 @@
                         querySnapshot.forEach((doc) => {
                             const entregador = doc.data();
 
-                            // Captura os dados corretos do entregador
                             const nome = entregador.fullName || 'Nome não disponível';
-                            const foto = entregador.photoURL || 'caminho/para/imagem/padrao.png'; // Substitua pelo caminho da imagem padrão
+                            const foto = entregador.photoURL || 'caminho/para/imagem/padrao.png';
 
-                            // Criação do elemento para o entregador
                             const entregadorEl = document.createElement('div');
                             entregadorEl.style.display = 'flex';
                             entregadorEl.style.alignItems = 'center';
@@ -514,7 +607,6 @@
                             entregadorEl.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
                             entregadorEl.style.transition = 'background-color 0.3s';
 
-                            // Adiciona animações ao passar o mouse
                             entregadorEl.addEventListener('mouseenter', () => {
                                 entregadorEl.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
                             });
@@ -522,13 +614,14 @@
                                 entregadorEl.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
                             });
 
-                            // Adiciona conteúdo do entregador
+                            // Adiciona o conteúdo do entregador e o botão de abrir chat
                             entregadorEl.innerHTML = `
                         <img src="${foto}" alt="${nome}" style="width: 50px; height: 50px; border-radius: 50%; margin-right: 10px;">
                         <div style="flex-grow: 1;">
                             <strong style="color: #00ff00;">${nome}</strong>
                             <p style="color: #ccc;">Status: Online</p>
                         </div>
+                        <button style="padding: 8px 12px; border: none; background-color: #007bff; color: white; border-radius: 5px; cursor: pointer;" onclick="iniciarChat('${doc.id}', '${nome}')">Abrir Chat</button>
                     `;
 
                             entregadoresOnlineEl.appendChild(entregadorEl);
@@ -539,6 +632,178 @@
                     console.error('Erro ao buscar entregadores online:', error);
                     entregadoresOnlineEl.innerHTML = '<p>Erro ao buscar entregadores online.</p>';
                 });
+        }
+
+        window.iniciarChat = async function (entregadorId, nomeEntregador) {
+            const userId = getUserId(); // Função para obter o ID do usuário atual
+            const produto = { descricao: "Início de conversa" }; // Placeholder para produto ou informação de conversa inicial
+
+            try {
+                // Cria o documento do chat entre o usuário e o entregador
+                const chatRef = await addDoc(collection(db, "chats"), {
+                    entregadorId: entregadorId,
+                    usuarioId: userId,
+                    timestamp: serverTimestamp(),
+                    mensagens: []
+                });
+
+                console.log("Chat criado com sucesso:", chatRef.id);
+
+                // Adicionar a mensagem inicial no chat
+                await updateDoc(chatRef, {
+                    mensagens: arrayUnion({
+                        sender: "usuario",
+                        texto: `Olá, ${nomeEntregador}, estou iniciando uma conversa.`,
+                        timestamp: new Date(),
+                    })
+                });
+
+                // Abrir o modal de chat
+                openChat(chatRef.id, nomeEntregador);
+            } catch (error) {
+                console.error("Erro ao iniciar o chat:", error);
+            }
+        }
+
+        function openChat(chatId, nomeEntregador) {
+            const chatModal = document.getElementById("chatModal");
+            const chatModalTitle = document.getElementById("chatModalTitle");
+            const chatMessagesContainer = document.getElementById("chatMessages");
+
+            chatModalTitle.textContent = `Chat com ${nomeEntregador}`;
+            chatMessagesContainer.innerHTML = ''; // Limpa mensagens antigas
+
+            // Função para carregar mensagens do Firestore
+            const chatRef = doc(db, "chats", chatId);
+            onSnapshot(chatRef, (doc) => {
+                const chatData = doc.data();
+                const mensagens = chatData.mensagens || [];
+
+                chatMessagesContainer.innerHTML = ''; // Limpa mensagens antigas
+                mensagens.forEach((mensagem) => {
+                    const mensagemEl = document.createElement("div");
+                    mensagemEl.textContent = `${mensagem.sender}: ${mensagem.texto}`;
+                    chatMessagesContainer.appendChild(mensagemEl);
+                });
+            });
+
+            // Abrir o modal
+            chatModal.style.display = "block";
+        }
+
+        // Função para fechar o modal
+        function closeChatModal() {
+            const chatModal = document.getElementById("chatModal");
+            chatModal.style.display = "none";
+        }
+
+        async function buscarChatsDoUsuario() {
+            const userId = getUserId(); // Obtém o ID do usuário atual
+            const chatsRef = collection(db, "chats");
+
+            // Filtra os chats onde o usuário é o "usuarioId" ou "entregadorId"
+            const q = query(
+                chatsRef,
+                or(
+                    where("usuarioId", "==", userId),
+                    where("entregadorId", "==", userId)
+                )
+            );
+
+            try {
+                const querySnapshot = await getDocs(q);
+                const chatList = document.getElementById('chatList');
+
+                // Verifique se o elemento existe
+                if (chatList) {
+                    chatList.innerHTML = ''; // Limpa a lista antes de exibir os novos chats
+
+                    if (querySnapshot.empty) {
+                        chatList.innerHTML = '<p>Nenhum chat encontrado.</p>';
+                    } else {
+                        const chatItems = [];
+
+                        // Coleta dados dos chats
+                        for (const docSnapshot of querySnapshot.docs) {
+                            const chatData = docSnapshot.data();
+
+                            // Determina o outro usuário no chat
+                            const otherUserId = chatData.usuarioId === userId ? chatData.entregadorId : chatData.usuarioId;
+
+                            // Busca os dados do outro usuário na coleção 'users'
+                            const userDocRef = doc(db, "users", otherUserId);
+                            const userDoc = await getDoc(userDocRef);
+                            const userData = userDoc.data();
+
+                            // Adiciona os dados do chat e a última mensagem ao array
+                            chatItems.push({
+                                id: docSnapshot.id,
+                                otherUserId,
+                                userName: userData.fullName || "Usuário Desconhecido",
+                                userImage: userData.photoURL || 'https://via.placeholder.com/50',
+                                lastMessage: chatData.lastMessage || "Nenhuma mensagem",
+                                lastMessageTime: chatData.lastMessageTime || Date.now()
+                            });
+                        }
+
+                        // Organiza os chats por timestamp da última mensagem (ordem cronológica)
+                        chatItems.sort((a, b) => b.lastMessageTime - a.lastMessageTime);
+
+                        // Cria os elementos na lista de chats
+                        chatItems.forEach(chat => {
+                            // Cria o elemento 'li' para o chat
+                            const chatItem = document.createElement('li');
+                            chatItem.classList.add('chat-list-item');
+                            chatItem.onclick = () => openChat(chat.id, chat.otherUserId); // Abre o chat correspondente
+
+                            // Cria o contêiner para o estilo do chat
+                            const chatContainer = document.createElement('div');
+                            chatContainer.classList.add('chat-container');
+
+                            // Adiciona a imagem do outro usuário
+                            const userImage = document.createElement('img');
+                            userImage.src = chat.userImage;
+                            userImage.alt = `${chat.userName}'s profile picture`;
+                            userImage.classList.add('user-image');
+
+                            // Adiciona o nome do outro usuário
+                            const userName = document.createElement('span');
+                            userName.textContent = chat.userName;
+                            userName.classList.add('user-name');
+
+                            // Adiciona a última mensagem
+                            const lastMessage = document.createElement('p');
+                            lastMessage.textContent = chat.lastMessage;
+                            lastMessage.classList.add('last-message');
+
+                            // Adiciona o timestamp da última mensagem
+                            const lastMessageTime = document.createElement('span');
+                            lastMessageTime.textContent = new Date(chat.lastMessageTime).toLocaleString(); // Formata o timestamp
+                            lastMessageTime.classList.add('last-message-time');
+
+                            // Ícone de chat
+                            const chatIcon = document.createElement('span');
+                            chatIcon.classList.add('chat-icon');
+                            chatIcon.innerHTML = '&#x1F4AC;'; // Ícone de balão de fala
+
+                            // Adiciona os elementos ao chatItem
+                            chatContainer.appendChild(userImage);
+                            chatContainer.appendChild(userName);
+                            chatContainer.appendChild(lastMessage);
+                            chatContainer.appendChild(lastMessageTime);
+                            chatContainer.appendChild(chatIcon);
+                            chatItem.appendChild(chatContainer);
+
+                            // Adiciona o chatItem à lista de chats
+                            chatList.appendChild(chatItem);
+                        });
+                    }
+                } else {
+                    console.error("Elemento 'chatList' não encontrado.");
+                }
+            } catch (error) {
+                console.error("Erro ao buscar chats:", error);
+            }
         }
 
         // Função para buscar os dados do Firestore
